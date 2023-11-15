@@ -15,5 +15,5 @@ fn main() -> io::Result<()> {
             }
         }
     });
-    return Ok(());
+    Ok(())
 }

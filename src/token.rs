@@ -6,7 +6,7 @@ pub enum Token {
     Eof,
     // Identifiers + literals
     Ident(String), // add, foobar, x, y, ...
-    Int(String),   // 1343456
+    Int(i64),      // 1343456
     // Operators
     Assign,
     Plus,
@@ -39,27 +39,27 @@ pub enum Token {
 
 impl Display for Token {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        return match self {
+        match self {
             Token::Ident(x) => write!(f, "Ident({})", x),
             Token::Int(x) => write!(f, "Int({})", x),
             Token::Illegal => write!(f, "Illegal"),
             Token::Eof => write!(f, "Eof"),
-            Token::Assign => write!(f, "Assign"),
-            Token::Bang => write!(f, "Bang"),
-            Token::Minus => write!(f, "Minus"),
-            Token::Slash => write!(f, "Slash"),
-            Token::Asterisk => write!(f, "Asterisk"),
-            Token::Eq => write!(f, "Equal"),
-            Token::NotEq => write!(f, "NotEqual"),
-            Token::Lt => write!(f, "LessThan"),
-            Token::Gt => write!(f, "GreaterThan"),
-            Token::Plus => write!(f, "Plus"),
-            Token::Comma => write!(f, "Comma"),
-            Token::Semicolon => write!(f, "Semicolon"),
-            Token::Lparen => write!(f, "Lparen"),
-            Token::Rparen => write!(f, "Rparen"),
-            Token::Lbrace => write!(f, "LBrace"),
-            Token::Rbrace => write!(f, "RBrace"),
+            Token::Assign => write!(f, "="),
+            Token::Bang => write!(f, "!"),
+            Token::Minus => write!(f, "-"),
+            Token::Slash => write!(f, "/"),
+            Token::Asterisk => write!(f, "*"),
+            Token::Eq => write!(f, "=="),
+            Token::NotEq => write!(f, "!="),
+            Token::Lt => write!(f, "<"),
+            Token::Gt => write!(f, ">"),
+            Token::Plus => write!(f, "+"),
+            Token::Comma => write!(f, ","),
+            Token::Semicolon => write!(f, ";"),
+            Token::Lparen => write!(f, "("),
+            Token::Rparen => write!(f, ")"),
+            Token::Lbrace => write!(f, "{{"),
+            Token::Rbrace => write!(f, "}}"),
             Token::Function => write!(f, "Function"),
             Token::Let => write!(f, "Let"),
             Token::If => write!(f, "If"),
@@ -67,6 +67,6 @@ impl Display for Token {
             Token::Return => write!(f, "Return"),
             Token::True => write!(f, "True"),
             Token::False => write!(f, "False"),
-        };
+        }
     }
 }
