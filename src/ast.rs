@@ -60,6 +60,7 @@ pub enum Expression {
     Prefix(Box<PrefixExpression>),
     Infix(Box<InfixExpression>),
     Boolean(bool),
+    If(Box<IfExpression>),
     None,
 }
 
@@ -75,8 +76,41 @@ impl Display for Expression {
                 infix.left_value, infix.operator, infix.right_value
             ),
             Expression::Boolean(bool) => write!(f, "{}", bool),
+            Expression::If(ifexp) => write!(f, "{}", ifexp),
             Expression::None => write!(f, "let value not implemented"),
         }
+    }
+}
+
+#[derive(PartialEq, Debug)]
+pub struct IfExpression {
+    pub condition: Expression,
+    pub consequence: BlockStatement,
+    pub alternative: Option<BlockStatement>,
+}
+
+impl Display for IfExpression {
+    fn fmt(&self, f: &mut Formatter<'_>) -> Result {
+        write!(f, "if {} {}", self.condition, self.consequence)?;
+
+        if let Some(ref stmt) = self.alternative {
+            write!(f, "else {}", stmt)?;
+        }
+        Ok(())
+    }
+}
+
+#[derive(PartialEq, Debug)]
+pub struct BlockStatement {
+    pub statments: Vec<Statement>,
+}
+
+impl Display for BlockStatement {
+    fn fmt(&self, f: &mut Formatter<'_>) -> Result {
+        for stmt in &self.statments {
+            write!(f, "{}", stmt)?
+        }
+        Ok(())
     }
 }
 

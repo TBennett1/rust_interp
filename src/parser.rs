@@ -49,7 +49,9 @@ pub enum ParserError {
     NoPrefixFun(Token),
     IdentParse,
     IntLitParse,
+    ExpectedLparen(Token),
     ExpectedRparen(Token),
+    ExpectedLbrace(Token),
 }
 
 impl Parser {
@@ -166,6 +168,7 @@ impl Parser {
             Token::Bang | Token::Minus => Some(Parser::parse_prefix_expression),
             Token::True | Token::False => Some(Parser::parse_boolean),
             Token::Lparen => Some(Parser::parse_grouped_expression),
+            Token::If => Some(Parser::parse_if_expression),
             _ => None,
         }
     }
@@ -243,6 +246,50 @@ impl Parser {
         self.expect_peek(Token::Rparen, ParserError::ExpectedRparen)?;
 
         exp
+    }
+
+    fn parse_if_expression(&mut self) -> Result<Expression, ParserError> {
+        self.expect_peek(Token::Lparen, ParserError::ExpectedLparen)?;
+
+        self.next_token();
+        let condition = self.parse_expression(Precedence::Lowest)?;
+
+        self.expect_peek(Token::Rparen, ParserError::ExpectedRparen)?;
+        self.expect_peek(Token::Lbrace, ParserError::ExpectedLbrace)?;
+
+        let consequence = self.parse_block_statement()?;
+
+        let alternative = if self.peek_token_is(&Token::Else) {
+            self.next_token();
+            self.expect_peek(Token::Lbrace, ParserError::ExpectedLbrace)?;
+
+            let alt_block = self.parse_block_statement()?;
+            Some(alt_block)
+        } else {
+            None
+        };
+
+        Ok(Expression::If(Box::new(IfExpression {
+            condition,
+            consequence,
+            alternative,
+        })))
+    }
+
+    fn parse_block_statement(&mut self) -> Result<BlockStatement, ParserError> {
+        let mut statements = Vec::new();
+        self.next_token();
+
+        while !self.curr_token_is(&Token::Rbrace) && !self.curr_token_is(&Token::Eof) {
+            if let Ok(stmt) = self.parse_statement() {
+                statements.push(stmt)
+            }
+            self.next_token();
+        }
+
+        Ok(BlockStatement {
+            statments: statements,
+        })
     }
 
     fn curr_token_is(&self, token: &Token) -> bool {
@@ -704,11 +751,100 @@ mod tests {
         }
     }
 
+    #[test]
+    fn if_expression() {
+        let input = "if (x < y) { x }".to_string();
+        let l = Lexer::new(input);
+        let mut p = Parser::new(l);
+
+        let prog = p.parse_program();
+        check_parser_errors(&p);
+
+        let exp = match prog.statements.first().unwrap() {
+            Statement::Expression(stmt) => &stmt.expression,
+            stmt => panic!("{:?} isn't an expression", stmt),
+        };
+
+        match exp {
+            Expression::If(ifexp) => {
+                test_if(&ifexp.condition, "x", Token::Lt, "y");
+
+                assert_eq!(
+                    ifexp.consequence.statments.len(),
+                    1,
+                    "expected only 1 statement"
+                );
+                match ifexp.consequence.statments.first().unwrap() {
+                    Statement::Expression(stmt) => test_indentifier(&stmt.expression, "x"),
+                    stmt => panic!("expected expression statement but got {:?}", stmt),
+                }
+                if let Some(stmt) = &ifexp.alternative {
+                    panic!("expected no alternative statement but got {:?}", stmt)
+                }
+            }
+            _ => panic!("expected if expression but got {:?}", exp),
+        }
+    }
+
+    #[test]
+    fn if_else_expression() {
+        let input = "if (x < y) { x } else { y }".to_string();
+        let l = Lexer::new(input);
+        let mut p = Parser::new(l);
+
+        let prog = p.parse_program();
+        check_parser_errors(&p);
+
+        let exp = match prog.statements.first().unwrap() {
+            Statement::Expression(stmt) => &stmt.expression,
+            stmt => panic!("{:?} isn't an expression", stmt),
+        };
+
+        match exp {
+            Expression::If(ifexp) => {
+                test_if(&ifexp.condition, "x", Token::Lt, "y");
+
+                assert_eq!(
+                    ifexp.consequence.statments.len(),
+                    1,
+                    "expected only 1 statement"
+                );
+                match ifexp.consequence.statments.first().unwrap() {
+                    Statement::Expression(stmt) => test_indentifier(&stmt.expression, "x"),
+                    stmt => panic!("expected expression statement but got {:?}", stmt),
+                }
+                if let Some(stmt) = &ifexp.alternative {
+                    assert_eq!(stmt.statments.len(), 1, "expected only 1 statement");
+                    match stmt.statments.first().unwrap() {
+                        Statement::Expression(stmt) => test_indentifier(&stmt.expression, "y"),
+                        stmt => panic!("expected expression statement but got {:?}", stmt),
+                    }
+                } else {
+                    panic!("expected alternative block")
+                }
+            }
+            _ => panic!("expected if expression but got {:?}", exp),
+        }
+    }
+
     fn check_parser_errors(parser: &Parser) {
         let errors = parser.errors();
 
         if !errors.is_empty() {
             panic!("got parser errors: {:?}", errors)
+        }
+    }
+
+    fn test_if(exp: &Expression, left: &str, op: Token, right: &str) {
+        match exp {
+            Expression::Infix(infix) => {
+                test_indentifier(&infix.left_value, left);
+                test_indentifier(&infix.right_value, right);
+                if op != infix.operator {
+                    panic!("expected {} but got {}", op, infix.operator)
+                }
+            }
+            _ => panic!("expected infix expression but got {:?}", exp),
         }
     }
 
