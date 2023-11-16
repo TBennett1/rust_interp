@@ -61,6 +61,8 @@ pub enum Expression {
     Infix(Box<InfixExpression>),
     Boolean(bool),
     If(Box<IfExpression>),
+    Function(Box<FunctionLiteral>),
+    Call(Box<CallExpression>),
     None,
 }
 
@@ -77,8 +79,36 @@ impl Display for Expression {
             ),
             Expression::Boolean(bool) => write!(f, "{}", bool),
             Expression::If(ifexp) => write!(f, "{}", ifexp),
+            Expression::Function(fnlit) => write!(f, "{}", fnlit),
+            Expression::Call(call) => write!(f, "{}", call),
             Expression::None => write!(f, "let value not implemented"),
         }
+    }
+}
+
+#[derive(PartialEq, Debug)]
+pub struct CallExpression {
+    pub function: Expression,
+    pub arguments: Vec<Expression>,
+}
+
+impl Display for CallExpression {
+    fn fmt(&self, f: &mut Formatter<'_>) -> Result {
+        let args: Vec<String> = self.arguments.iter().map(|a| a.to_string()).collect();
+        write!(f, "{}({})", self.function, args.join(", "))
+    }
+}
+
+#[derive(PartialEq, Debug)]
+pub struct FunctionLiteral {
+    pub parameters: Vec<IdentifierExpression>,
+    pub body: BlockStatement,
+}
+
+impl Display for FunctionLiteral {
+    fn fmt(&self, f: &mut Formatter<'_>) -> Result {
+        let params: Vec<String> = self.parameters.iter().map(|p| p.to_string()).collect();
+        write!(f, "({}) {}", params.join(", "), self.body)
     }
 }
 
@@ -114,6 +144,7 @@ impl Display for BlockStatement {
     }
 }
 
+#[derive(PartialEq, Eq, Debug)]
 pub struct IdentifierExpression {
     pub name: String,
 }

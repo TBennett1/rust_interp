@@ -15,7 +15,7 @@ enum Precedence {
     Sum,
     Product,
     Prefix,
-    // Call,
+    Call,
 }
 
 impl Precedence {
@@ -29,6 +29,7 @@ impl Precedence {
             Token::Minus => Precedence::Sum,
             Token::Slash => Precedence::Product,
             Token::Asterisk => Precedence::Product,
+            Token::Lparen => Precedence::Call,
             _ => Precedence::Lowest,
         }
     }
@@ -52,6 +53,7 @@ pub enum ParserError {
     ExpectedLparen(Token),
     ExpectedRparen(Token),
     ExpectedLbrace(Token),
+    ExpectedRbrace(Token),
 }
 
 impl Parser {
@@ -107,14 +109,15 @@ impl Parser {
 
         self.expect_peek(Token::Assign, ParserError::ExpectedAssign)?;
 
-        while !self.curr_token_is(&Token::Semicolon) {
+        self.next_token();
+
+        let value = self.parse_expression(Precedence::Lowest)?;
+
+        if self.peek_token_is(&Token::Semicolon) {
             self.next_token();
         }
 
-        Ok(Statement::Let(LetStatement {
-            name,
-            value: Expression::None,
-        }))
+        Ok(Statement::Let(LetStatement { name, value }))
     }
 
     fn parse_return_statement(&mut self) -> Result<Statement, ParserError> {
@@ -122,7 +125,7 @@ impl Parser {
 
         let value = self.parse_expression(Precedence::Lowest)?;
 
-        while self.curr_token != Token::Semicolon {
+        if self.peek_token_is(&Token::Semicolon) {
             self.next_token();
         }
 
@@ -169,6 +172,7 @@ impl Parser {
             Token::True | Token::False => Some(Parser::parse_boolean),
             Token::Lparen => Some(Parser::parse_grouped_expression),
             Token::If => Some(Parser::parse_if_expression),
+            Token::Function => Some(Parser::parse_function_literal),
             _ => None,
         }
     }
@@ -183,8 +187,21 @@ impl Parser {
             | Token::NotEq
             | Token::Lt
             | Token::Gt => Some(Parser::parse_infix_expression),
+            Token::Lparen => Some(Parser::parse_call_expression),
             _ => None,
         }
+    }
+
+    fn parse_identifier_into_identifier_expression(
+        &mut self,
+    ) -> Result<IdentifierExpression, ParserError> {
+        if let Token::Ident(ref name) = self.curr_token {
+            return Ok(IdentifierExpression {
+                name: name.to_string(),
+            });
+        }
+
+        Err(ParserError::IdentParse)
     }
 
     fn parse_identifier(&mut self) -> Result<Expression, ParserError> {
@@ -238,6 +255,36 @@ impl Parser {
         })))
     }
 
+    fn parse_call_expression(&mut self, function: Expression) -> Result<Expression, ParserError> {
+        let arguments = self.parse_call_arguments()?;
+        Ok(Expression::Call(Box::new(CallExpression {
+            function,
+            arguments,
+        })))
+    }
+
+    fn parse_call_arguments(&mut self) -> Result<Vec<Expression>, ParserError> {
+        let mut args: Vec<Expression> = Vec::new();
+
+        if self.peek_token_is(&Token::Rparen) {
+            self.next_token();
+            return Ok(args);
+        }
+
+        self.next_token();
+        args.push(self.parse_expression(Precedence::Lowest)?);
+
+        while self.peek_token_is(&Token::Comma) {
+            self.next_token();
+            self.next_token();
+            args.push(self.parse_expression(Precedence::Lowest)?);
+        }
+
+        self.expect_peek(Token::Rparen, ParserError::ExpectedRparen)?;
+
+        Ok(args)
+    }
+
     fn parse_grouped_expression(&mut self) -> Result<Expression, ParserError> {
         self.next_token();
 
@@ -274,6 +321,44 @@ impl Parser {
             consequence,
             alternative,
         })))
+    }
+
+    fn parse_function_literal(&mut self) -> Result<Expression, ParserError> {
+        self.expect_peek(Token::Lparen, ParserError::ExpectedRparen)?;
+
+        let parameters = self.parse_function_parameters()?;
+
+        self.expect_peek(Token::Lbrace, ParserError::ExpectedRbrace)?;
+
+        let body = self.parse_block_statement()?;
+
+        Ok(Expression::Function(Box::new(FunctionLiteral {
+            parameters,
+            body,
+        })))
+    }
+
+    fn parse_function_parameters(&mut self) -> Result<Vec<IdentifierExpression>, ParserError> {
+        let mut identifiers: Vec<IdentifierExpression> = Vec::new();
+
+        if self.peek_token_is(&Token::Rparen) {
+            self.next_token();
+            return Ok(identifiers);
+        }
+
+        self.next_token();
+
+        identifiers.push(self.parse_identifier_into_identifier_expression()?);
+
+        while self.peek_token_is(&Token::Comma) {
+            self.next_token();
+            self.next_token();
+            identifiers.push(self.parse_identifier_into_identifier_expression()?);
+        }
+
+        self.expect_peek(Token::Rparen, ParserError::ExpectedRparen)?;
+
+        Ok(identifiers)
     }
 
     fn parse_block_statement(&mut self) -> Result<BlockStatement, ParserError> {
@@ -334,88 +419,86 @@ mod tests {
 
     #[test]
     fn let_statement() {
-        let input = "
-            let x = 5;
-            let y = 10;
-            let foobar = 838383;
-        ";
-        let l = Lexer::new(input.into());
-        let mut p = Parser::new(l);
+        let prog = setup("let x = 5", 1);
+        let exp = let_statemnent_parse_and_verify(&prog, "x");
 
-        let program = p.parse_program();
-        check_parser_errors(&p);
+        match exp {
+            Expression::Integer(i) => assert_eq!(i, &5),
+            _ => panic!("expected int expression"),
+        }
+    }
 
-        let tests = vec!["x", "y", "foobar"];
+    #[test]
+    fn let_statement_bool() {
+        let prog = setup("let y = true", 1);
+        let exp = let_statemnent_parse_and_verify(&prog, "y");
+        match exp {
+            Expression::Boolean(b) => assert_eq!(b, &true),
+            _ => panic!("expected bool expression"),
+        }
+    }
 
-        let mut iter = program.statements.iter();
+    #[test]
+    fn let_statement_ident() {
+        let prog = setup("let foobar = y", 1);
+        let exp = let_statemnent_parse_and_verify(&prog, "foobar");
 
-        for t in tests {
-            match iter.next().unwrap() {
-                Statement::Let(ref l) => {
-                    assert_eq!(l.name, t)
-                }
-                _ => panic!("unkown node"),
-            }
+        match exp {
+            Expression::Identifier(id) => assert_eq!(id, "y"),
+            _ => panic!("expected idetifier expression"),
         }
     }
 
     #[test]
     fn return_statement() {
-        let input = "  return 5;
+        let program = setup(
+            "return 5;
         return 10;
-        return 993322;";
-
-        let lexer = Lexer::new(input.into());
-        let mut p = Parser::new(lexer);
-        let program = p.parse_program();
-
-        check_parser_errors(&p);
-
-        assert_eq!(
-            program.statements,
-            vec![
-                Statement::Return(ReturnStatement {
-                    value: Expression::Integer(5)
-                }),
-                Statement::Return(ReturnStatement {
-                    value: Expression::Integer(10)
-                }),
-                Statement::Return(ReturnStatement {
-                    value: Expression::Integer(993322)
-                })
-            ]
+        return 993322;",
+            3,
         );
+
+        for stmt in program.statements {
+            match stmt {
+                Statement::Return(_) => {}
+                _ => panic!("expected return statment but got {:?}", stmt),
+            }
+        }
     }
+
+    #[test]
+    fn return_statement_bool() {
+        let prog = setup("return true", 1);
+        let exp = return_statment_parse_and_verify(&prog);
+        match exp {
+            Expression::Boolean(b) => assert_eq!(b, &true),
+            _ => panic!("not a boolean"),
+        }
+    }
+
+    #[test]
+    fn return_statement_ident() {
+        let prog = setup("return foobar", 1);
+        let exp = return_statment_parse_and_verify(&prog);
+
+        match exp {
+            Expression::Identifier(id) => assert_eq!(id, "foobar"),
+            _ => panic!("not a identifier"),
+        }
+    }
+
     #[test]
     fn identifiers_expression() {
-        let input = "foobar;";
-        let l = Lexer::new(input.into());
-        let mut p = Parser::new(l);
-
-        let program = p.parse_program();
-        check_parser_errors(&p);
-
-        let exp = match program.statements.first().unwrap() {
-            Statement::Expression(stmt) => &stmt.expression,
-            stmt => panic!("{:?} isn't an expression", stmt),
-        };
+        let prog = setup("foobar", 1);
+        let exp = unwrap_expression(&prog);
 
         test_indentifier(exp, "foobar");
     }
 
     #[test]
     fn integer_literals() {
-        let input = "5;";
-        let l = Lexer::new(input.into());
-        let mut p = Parser::new(l);
-
-        let program = p.parse_program();
-        check_parser_errors(&p);
-
-        let exp = match program.statements.first().unwrap() {
-            Statement::Expression(stmt) => &stmt.expression,
-            stmt => panic!("{:?} isn't an expression", stmt),
-        };
+        let prog = setup("5", 1);
+        let exp = unwrap_expression(&prog);
 
         match exp {
             Expression::Integer(int) => {
@@ -447,16 +530,8 @@ mod tests {
         ];
 
         for t in tests {
-            let l = Lexer::new(t.input.into());
-            let mut p = Parser::new(l);
-
-            let program = p.parse_program();
-            check_parser_errors(&p);
-
-            let exp = match program.statements.first().unwrap() {
-                Statement::Expression(stmt) => &stmt.expression,
-                stmt => panic!("{:?} isn't an expression", stmt),
-            };
+            let prog = setup(t.input, 1);
+            let exp = unwrap_expression(&prog);
 
             match exp {
                 Expression::Prefix(prefix) => {
@@ -533,16 +608,8 @@ mod tests {
         ];
 
         for t in tests {
-            let l = Lexer::new(t.input.into());
-            let mut p = Parser::new(l);
-
-            let program = p.parse_program();
-            check_parser_errors(&p);
-
-            let exp = match program.statements.first().unwrap() {
-                Statement::Expression(stmt) => &stmt.expression,
-                stmt => panic!("{:?} isn't an expression", stmt),
-            };
+            let prog = setup(t.input, 1);
+            let exp = unwrap_expression(&prog);
             match exp {
                 Expression::Infix(infix) => {
                     assert_eq!(
@@ -589,16 +656,9 @@ mod tests {
         ];
 
         for test in tests {
-            let l = Lexer::new(test.input.into());
-            let mut p = Parser::new(l);
+            let prog = setup(test.input, 1);
+            let exp = unwrap_expression(&prog);
 
-            let prog = p.parse_program();
-            check_parser_errors(&p);
-
-            let exp = match prog.statements.first().unwrap() {
-                Statement::Expression(stmt) => &stmt.expression,
-                stmt => panic!("{:?} isn't an expression", stmt),
-            };
             match exp {
                 Expression::Infix(infix) => {
                     assert_eq!(
@@ -711,13 +771,22 @@ mod tests {
                 input: "!(true == true)",
                 expected: "(!(true == true))",
             },
+            Test {
+                input: "a + add(b * c) + d",
+                expected: "((a + add((b * c))) + d)",
+            },
+            Test {
+                input: "add(a, b, 1, 2 * 3, 4 + 5, add(6, 7 * 8))",
+                expected: "add(a, b, 1, (2 * 3), (4 + 5), add(6, (7 * 8)))",
+            },
+            Test {
+                input: "add(a + b + c * d / f + g)",
+                expected: "add((((a + b) + ((c * d) / f)) + g))",
+            },
         ];
 
         for test in tests {
-            let l = Lexer::new(test.input.into());
-            let mut p = Parser::new(l);
-            let prog = p.parse_program();
-            check_parser_errors(&p);
+            let prog = setup(test.input, 0);
 
             assert_eq!(
                 test.expected,
@@ -731,17 +800,8 @@ mod tests {
 
     #[test]
     fn bool_expression() {
-        let input = "true;";
-        let l = Lexer::new(input.into());
-        let mut p = Parser::new(l);
-
-        let program = p.parse_program();
-        check_parser_errors(&p);
-
-        let exp = match program.statements.first().unwrap() {
-            Statement::Expression(stmt) => &stmt.expression,
-            stmt => panic!("{:?} isn't an expression", stmt),
-        };
+        let program = setup("true", 1);
+        let exp = unwrap_expression(&program);
 
         match exp {
             Expression::Boolean(b) => {
@@ -753,17 +813,8 @@ mod tests {
 
     #[test]
     fn if_expression() {
-        let input = "if (x < y) { x }".to_string();
-        let l = Lexer::new(input);
-        let mut p = Parser::new(l);
-
-        let prog = p.parse_program();
-        check_parser_errors(&p);
-
-        let exp = match prog.statements.first().unwrap() {
-            Statement::Expression(stmt) => &stmt.expression,
-            stmt => panic!("{:?} isn't an expression", stmt),
-        };
+        let prog = setup("if (x < y) { x }", 1);
+        let exp = unwrap_expression(&prog);
 
         match exp {
             Expression::If(ifexp) => {
@@ -788,17 +839,8 @@ mod tests {
 
     #[test]
     fn if_else_expression() {
-        let input = "if (x < y) { x } else { y }".to_string();
-        let l = Lexer::new(input);
-        let mut p = Parser::new(l);
-
-        let prog = p.parse_program();
-        check_parser_errors(&p);
-
-        let exp = match prog.statements.first().unwrap() {
-            Statement::Expression(stmt) => &stmt.expression,
-            stmt => panic!("{:?} isn't an expression", stmt),
-        };
+        let prog = setup("if (x < y) { x } else { y }", 1);
+        let exp = unwrap_expression(&prog);
 
         match exp {
             Expression::If(ifexp) => {
@@ -827,11 +869,180 @@ mod tests {
         }
     }
 
+    #[test]
+    fn function_literal_parsing() {
+        let prog = setup("fn(x, y) { x + y; }", 1);
+        let exp = unwrap_expression(&prog);
+
+        match exp {
+            Expression::Function(func) => {
+                assert_eq!(
+                    2,
+                    func.parameters.len(),
+                    "expected 2 parameters but got {:?}",
+                    func.parameters.len()
+                );
+                assert_eq!(func.parameters.first().unwrap().name, "x");
+                assert_eq!(func.parameters.last().unwrap().name, "y");
+                assert_eq!(
+                    1,
+                    func.body.statments.len(),
+                    "expected 1 body statement but got {:?}",
+                    func.body.statments.len()
+                );
+
+                match func.body.statments.first().unwrap() {
+                    Statement::Expression(stmt) => match &stmt.expression {
+                        Expression::Infix(infix) => {
+                            assert_eq!(
+                                infix.operator,
+                                Token::Plus,
+                                "expected + but got {}",
+                                infix.operator
+                            );
+                            test_indentifier(&infix.left_value, "x");
+                            test_indentifier(&infix.right_value, "y");
+                        }
+                        _ => panic!("expected infix but got {:?}", stmt.expression),
+                    },
+                    stmt => panic!("expected expression but got {:?}", stmt),
+                }
+            }
+            _ => panic!("{} is not a function literal", exp),
+        }
+    }
+
+    #[test]
+    fn function_parameters_parsing() {
+        struct Test<'a> {
+            input: &'a str,
+            expected: Vec<&'a str>,
+        }
+
+        let tests = vec![
+            Test {
+                input: "fn() {};",
+                expected: vec![],
+            },
+            Test {
+                input: "fn(x) {};",
+                expected: vec!["x"],
+            },
+            Test {
+                input: "fn(x, y, z) {};",
+                expected: vec!["x", "y", "z"],
+            },
+        ];
+
+        for test in tests {
+            let prog = setup(test.input, 1);
+            let exp = unwrap_expression(&prog);
+
+            match exp {
+                Expression::Function(func) => {
+                    assert_eq!(func.parameters.len(), test.expected.len());
+
+                    let mut params = test.expected.into_iter();
+                    for param in &func.parameters {
+                        let expected_param = params.next().unwrap();
+                        assert_eq!(expected_param, param.name.as_str());
+                    }
+                }
+                _ => panic!("{:?} not a function literal", exp),
+            }
+        }
+    }
+
+    #[test]
+    fn call_expression_parsing() {
+        let input = "add(1, 2 * 3, 4 + 5);".to_string();
+        let l = Lexer::new(input);
+        let mut p = Parser::new(l);
+        let prog = p.parse_program();
+        check_parser_errors(&p);
+
+        let exp = match prog.statements.first().unwrap() {
+            Statement::Expression(stmt) => &stmt.expression,
+            stmt => panic!("{:?} is not an expression", stmt),
+        };
+
+        match exp {
+            Expression::Call(call) => {
+                test_indentifier(&call.function, "add");
+                assert_eq!(3, call.arguments.len());
+                let mut args = call.arguments.iter();
+                test_integer_literal(args.next().unwrap(), 1);
+                test_infix(args.next().unwrap(), 2, Token::Asterisk, 3);
+                test_infix(args.next().unwrap(), 4, Token::Plus, 5);
+            }
+            _ => panic!("{:?} is not a call expression", exp),
+        }
+    }
+
+    #[test]
+    fn call_expression_arguments() {
+        struct Test<'a> {
+            input: &'a str,
+            expected_ident: &'a str,
+            expected_args: Vec<&'a str>,
+        }
+
+        let tests = vec![
+            Test {
+                input: "add();",
+                expected_ident: "add",
+                expected_args: vec![],
+            },
+            Test {
+                input: "add(1);",
+                expected_args: vec!["1"],
+                expected_ident: "add",
+            },
+            Test {
+                input: "add(1, 2 * 3, 4 + 5);",
+                expected_ident: "add",
+                expected_args: vec!["1", "(2 * 3)", "(4 + 5)"],
+            },
+        ];
+
+        for test in tests {
+            let prog = setup(test.input, 1);
+            let exp = unwrap_expression(&prog);
+
+            match exp {
+                Expression::Call(call) => {
+                    test_indentifier(&call.function, test.expected_ident);
+                    assert_eq!(call.arguments.len(), test.expected_args.len());
+                    let mut args = call.arguments.iter();
+                    for a in test.expected_args {
+                        assert_eq!(a.to_string(), args.next().unwrap().to_string());
+                    }
+                }
+                _ => panic!("{:?} is not a call expression", exp),
+            }
+        }
+    }
+
     fn check_parser_errors(parser: &Parser) {
         let errors = parser.errors();
 
         if !errors.is_empty() {
             panic!("got parser errors: {:?}", errors)
+        }
+    }
+
+    fn test_infix(exp: &Expression, left: i64, op: Token, right: i64) {
+        match exp {
+            Expression::Infix(infix) => {
+                assert_eq!(
+                    op, infix.operator,
+                    "expected {} operator but got {}",
+                    op, infix.operator
+                );
+                test_integer_literal(&infix.left_value, left);
+                test_integer_literal(&infix.right_value, right);
+            }
+            exp => panic!("expected infix expression but got {:?}", exp),
         }
     }
 
@@ -872,6 +1083,51 @@ mod tests {
                 assert_eq!(value, ident, "expected {} got {}", value, ident)
             }
             _ => panic!("expected identifier but got {}", exp),
+        }
+    }
+
+    fn let_statemnent_parse_and_verify<'a>(
+        prog: &'a Program,
+        expected_ident: &str,
+    ) -> &'a Expression {
+        let stmt = prog.statements.first().unwrap();
+        match stmt {
+            Statement::Let(stmt) => {
+                assert_eq!(stmt.name.as_str(), expected_ident);
+                &stmt.value
+            }
+            stmt => panic!("expected let statment but got {:?}", stmt),
+        }
+    }
+
+    fn return_statment_parse_and_verify(prog: &Program) -> &Expression {
+        let stmt = prog.statements.first().unwrap();
+        match stmt {
+            Statement::Return(stmt) => &stmt.value,
+            stmt => panic!("expected return statement but got {:?}", stmt),
+        }
+    }
+
+    fn setup(input: &str, stmt_count: usize) -> Program {
+        let l = Lexer::new(input.into());
+        let mut p = Parser::new(l);
+        let prog = p.parse_program();
+        check_parser_errors(&p);
+
+        if stmt_count != 0 && prog.statements.len() != stmt_count {
+            panic!(
+                "expected {} statement(s) for '{}' but got {:?}",
+                stmt_count, input, prog.statements
+            )
+        }
+
+        prog
+    }
+
+    fn unwrap_expression(prog: &Program) -> &Expression {
+        match prog.statements.first().unwrap() {
+            Statement::Expression(stmt) => &stmt.expression,
+            stmt => panic!("{:?} isn't an expression", stmt),
         }
     }
 }
