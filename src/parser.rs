@@ -407,8 +407,7 @@ impl Parser {
         }
     }
 
-    #[cfg(test)]
-    fn errors(&self) -> &[ParserError] {
+    pub fn errors(&self) -> &Vec<ParserError> {
         &self.errors
     }
 }
