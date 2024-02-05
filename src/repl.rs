@@ -24,7 +24,7 @@ pub fn start<R: io::BufRead, W: io::Write>(mut reader: R, mut writer: W) -> io::
             continue;
         }
 
-        let evaluated = evaluator::eval(program);
+        let evaluated = evaluator::eval(&crate::ast::Node::Program(Box::new(program))).unwrap();
         writeln!(writer, "{}", evaluated)?
     }
 

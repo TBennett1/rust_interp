@@ -2,6 +2,13 @@ use core::fmt::*;
 
 use crate::token;
 
+#[derive(Debug)]
+pub enum Node {
+    Program(Box<Program>),
+    Statement(Box<Statement>),
+    Expression(Box<Expression>),
+}
+
 #[derive(Debug, PartialEq)]
 pub enum Statement {
     Let(LetStatement),
