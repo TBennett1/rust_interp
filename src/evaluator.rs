@@ -1,7 +1,8 @@
+use std::cell::RefCell;
 use std::fmt;
 use std::rc::Rc;
 
-use crate::object::Object;
+use crate::object::{Environment, Object};
 use crate::token::Token;
 use crate::{ast::*, object};
 use anyhow::Result;
@@ -29,19 +30,19 @@ impl std::error::Error for EvalError {
     }
 }
 
-pub fn eval(node: &Node) -> EvalResult {
+pub fn eval(node: &Node, env: Rc<RefCell<Environment>>) -> EvalResult {
     match node {
-        Node::Program(prog) => eval_program(prog),
-        Node::Statement(stmt) => eval_statement(stmt),
-        Node::Expression(exp) => eval_expression(exp),
+        Node::Program(prog) => eval_program(prog, env),
+        Node::Statement(stmt) => eval_statement(stmt, env),
+        Node::Expression(exp) => eval_expression(exp, env),
     }
 }
 
-fn eval_program(prog: &Program) -> EvalResult {
+fn eval_program(prog: &Program, env: Rc<RefCell<Environment>>) -> EvalResult {
     let mut result = Object::Null;
 
     for stmt in &prog.statements {
-        let res = eval_statement(stmt)?;
+        let res = eval_statement(stmt, Rc::clone(&env))?;
         match &res {
             Object::Return(r) => return Ok(r.value.clone()),
             _ => result = res,
@@ -50,10 +51,10 @@ fn eval_program(prog: &Program) -> EvalResult {
     Ok(result)
 }
 
-fn eval_block_statement(block: &BlockStatement) -> EvalResult {
+fn eval_block_statement(block: &BlockStatement, env: Rc<RefCell<Environment>>) -> EvalResult {
     let mut result = Object::Null;
     for stmt in &block.statments {
-        let res = eval_statement(stmt)?;
+        let res = eval_statement(stmt, Rc::clone(&env))?;
 
         match res {
             Object::Return(_) => return Ok(res),
@@ -63,42 +64,55 @@ fn eval_block_statement(block: &BlockStatement) -> EvalResult {
     Ok(result)
 }
 
-fn eval_statement(stmt: &Statement) -> EvalResult {
+fn eval_statement(stmt: &Statement, env: Rc<RefCell<Environment>>) -> EvalResult {
     match stmt {
-        Statement::Expression(exp) => eval_expression(&exp.expression),
+        Statement::Expression(exp) => eval_expression(&exp.expression, env),
         Statement::Return(ret) => {
-            let value = eval_expression(&ret.value)?;
+            let value = eval_expression(&ret.value, Rc::clone(&env))?;
             Ok(Object::Return(Rc::new(object::ReturnValue { value })))
         }
-        _ => todo!(),
+        Statement::Let(exp) => {
+            let value = eval_expression(&exp.value, Rc::clone(&env))?;
+            env.borrow_mut().set(exp.name.clone(), value.clone());
+            Ok(value)
+        }
     }
 }
 
-fn eval_expression(exp: &Expression) -> EvalResult {
+fn eval_expression(exp: &Expression, env: Rc<RefCell<Environment>>) -> EvalResult {
     match exp {
         Expression::Integer(i) => Ok(Object::Integer(*i)),
         Expression::Boolean(b) => Ok(native_bool_to_boolean_object(b)),
         Expression::Prefix(p) => {
-            let right = eval_expression(&p.right)?;
+            let right = eval_expression(&p.right, Rc::clone(&env))?;
             eval_prefix_expression(&p.operator, right)
         }
         Expression::Infix(infix) => {
-            let right = eval_expression(&infix.right_value)?;
-            let left = eval_expression(&infix.left_value)?;
+            let right = eval_expression(&infix.right_value, Rc::clone(&env))?;
+            let left = eval_expression(&infix.left_value, Rc::clone(&env))?;
 
             eval_infix_expression(&infix.operator, right, left)
         }
-        Expression::If(ifexp) => eval_if_statement(ifexp),
+        Expression::If(ifexp) => eval_if_statement(ifexp, Rc::clone(&env)),
+        Expression::Identifier(id) => {
+            let val = env.borrow().get(id);
+            match val {
+                Some(v) => Ok(v),
+                None => Err(EvalError {
+                    msg: format!("identifier not found: {}", id),
+                }),
+            }
+        }
         _ => Ok(NULL),
     }
 }
 
-fn eval_if_statement(ifexp: &IfExpression) -> EvalResult {
-    let condition = eval_expression(&ifexp.condition).unwrap();
+fn eval_if_statement(ifexp: &IfExpression, env: Rc<RefCell<Environment>>) -> EvalResult {
+    let condition = eval_expression(&ifexp.condition, Rc::clone(&env)).unwrap();
     match is_truthy(condition) {
-        true => eval_block_statement(&ifexp.consequence),
+        true => eval_block_statement(&ifexp.consequence, Rc::clone(&env)),
         false => match &ifexp.alternative {
-            Some(alt) => eval_block_statement(alt),
+            Some(alt) => eval_block_statement(alt, Rc::clone(&env)),
             None => Ok(NULL),
         },
     }
@@ -522,13 +536,18 @@ mod test {
             ",
                 expected: "unknown operator: true + false",
             },
+            Test {
+                input: "foobar",
+                expected: "identifier not found: foobar",
+            },
         ];
 
         for test in tests {
             let l = Lexer::new(test.input.into());
             let mut p = Parser::new(l);
             let program = p.parse_program();
-            let evaluated = eval(&Node::Program(Box::new(program)));
+            let env = Rc::new(RefCell::new(Environment::new()));
+            let evaluated = eval(&Node::Program(Box::new(program)), env);
 
             match evaluated {
                 Err(e) => assert_eq!(e.msg, test.expected),
@@ -537,12 +556,44 @@ mod test {
         }
     }
 
+    #[test]
+    fn let_statement() {
+        struct Test<'a> {
+            input: &'a str,
+            expected: i64,
+        }
+
+        let tests = vec![
+            Test {
+                input: "let a = 5; a;",
+                expected: 5,
+            },
+            Test {
+                input: "let a = 5 * 5; a;",
+                expected: 25,
+            },
+            Test {
+                input: "let a = 5; let b = a; b;",
+                expected: 5,
+            },
+            Test {
+                input: "let a = 5; let b = a; let c = a + b + 5; c;",
+                expected: 15,
+            },
+        ];
+
+        for t in tests {
+            test_integer_object(&test_eval(t.input), t.expected)
+        }
+    }
+
     fn test_eval(input: &str) -> Object {
         let l = Lexer::new(input.into());
         let mut p = Parser::new(l);
+        let env = Rc::new(RefCell::new(Environment::new()));
         let program = p.parse_program();
 
-        eval(&Node::Program(Box::new(program))).expect(input)
+        eval(&Node::Program(Box::new(program)), env).expect(input)
     }
 
     fn test_integer_object(obj: &Object, expected: i64) {

@@ -1,9 +1,12 @@
-use crate::evaluator;
 use crate::lexer::Lexer;
 use crate::parser::Parser;
+use crate::{evaluator, object};
+use std::cell::RefCell;
 use std::io;
+use std::rc::Rc;
 
 pub fn start<R: io::BufRead, W: io::Write>(mut reader: R, mut writer: W) -> io::Result<()> {
+    let env = Rc::new(RefCell::new(object::Environment::new()));
     loop {
         writer.write_all(b"> ")?;
         writer.flush()?;
@@ -24,7 +27,11 @@ pub fn start<R: io::BufRead, W: io::Write>(mut reader: R, mut writer: W) -> io::
             continue;
         }
 
-        let evaluated = evaluator::eval(&crate::ast::Node::Program(Box::new(program))).unwrap();
+        let evaluated = evaluator::eval(
+            &crate::ast::Node::Program(Box::new(program)),
+            Rc::clone(&env),
+        )
+        .unwrap();
         writeln!(writer, "{}", evaluated)?
     }
 

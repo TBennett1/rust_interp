@@ -1,4 +1,4 @@
-use std::{fmt::*, rc::Rc};
+use std::{collections::HashMap, fmt::*, rc::Rc};
 
 #[derive(Debug, PartialEq, Eq, Clone)]
 pub enum Object {
@@ -22,5 +22,31 @@ impl Display for Object {
             Object::Null => write!(f, "null"),
         };
         Ok(())
+    }
+}
+
+pub struct Environment {
+    store: HashMap<String, Object>,
+}
+
+impl Default for Environment {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl Environment {
+    pub fn new() -> Environment {
+        Environment {
+            store: HashMap::new(),
+        }
+    }
+
+    pub fn get(&self, name: &str) -> Option<Object> {
+        self.store.get(name).cloned()
+    }
+
+    pub fn set(&mut self, name: String, value: Object) -> Option<Object> {
+        self.store.insert(name, value)
     }
 }
