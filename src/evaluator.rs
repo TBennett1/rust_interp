@@ -2,7 +2,7 @@ use std::cell::RefCell;
 use std::fmt;
 use std::rc::Rc;
 
-use crate::object::{Environment, Object};
+use crate::object::{Environment, Function, Object};
 use crate::token::Token;
 use crate::{ast::*, object};
 use anyhow::Result;
@@ -103,8 +103,35 @@ fn eval_expression(exp: &Expression, env: Rc<RefCell<Environment>>) -> EvalResul
                 }),
             }
         }
+        Expression::Function(f) => {
+            let func = Function {
+                parameters: f.parameters.clone(),
+                body: f.body.clone(),
+                env,
+            };
+            Ok(Object::Function(func))
+        }
+        Expression::Call(c) => {
+            let func = eval_expression(&c.function, Rc::clone(&env))?;
+            let args = eval_expressions(&c.arguments, env)?;
+            apply_function(func, args)
+        }
         _ => Ok(NULL),
     }
+}
+
+fn eval_expressions(
+    exps: &Vec<Expression>,
+    env: Rc<RefCell<Environment>>,
+) -> Result<Vec<Object>, EvalError> {
+    let mut result = Vec::with_capacity(exps.len());
+
+    for exp in exps {
+        let evalualted = eval_expression(exp, Rc::clone(&env))?;
+        result.push(evalualted);
+    }
+
+    Ok(result)
 }
 
 fn eval_if_statement(ifexp: &IfExpression, env: Rc<RefCell<Environment>>) -> EvalResult {
@@ -196,6 +223,39 @@ fn is_truthy(obj: Object) -> bool {
         Object::Null => false,
         _ => true,
     }
+}
+
+fn apply_function(func: Object, args: Vec<Object>) -> EvalResult {
+    match func {
+        Object::Function(fun) => {
+            let extended_env = extend_function_env(&fun, args);
+            let evaluated = eval_block_statement(&fun.body, extended_env)?;
+            Ok(unwrap_return_value(evaluated))
+        }
+        _ => Err(EvalError {
+            msg: format!("not a function: {}", func),
+        }),
+    }
+}
+
+fn extend_function_env(fun: &Function, args: Vec<Object>) -> Rc<RefCell<Environment>> {
+    let env = Rc::new(RefCell::new(Environment::new_enclosed(Rc::clone(&fun.env))));
+    let mut args_iter = args.into_iter();
+
+    for param in &fun.parameters {
+        let arg = args_iter.next().unwrap();
+        env.borrow_mut().set(param.name.clone(), arg);
+    }
+
+    env
+}
+
+fn unwrap_return_value(obj: Object) -> Object {
+    if let Object::Return(ret) = &obj {
+        return ret.value.clone();
+    }
+
+    obj
 }
 
 #[cfg(test)]
@@ -579,6 +639,72 @@ mod test {
             Test {
                 input: "let a = 5; let b = a; let c = a + b + 5; c;",
                 expected: 15,
+            },
+        ];
+
+        for t in tests {
+            test_integer_object(&test_eval(t.input), t.expected)
+        }
+    }
+
+    #[test]
+    fn function_object() {
+        let input = "fn(x) { x + 2; };";
+        let eval = test_eval(input);
+        match eval {
+            Object::Function(f) => {
+                if f.parameters.len() != 1 {
+                    panic!(
+                        "function has wrong parameters. Parameters: {:?}",
+                        f.parameters
+                    )
+                }
+
+                if f.parameters[0].name != *"x" {
+                    panic!("parameter is not x. got {}", f.parameters[0].name)
+                }
+
+                let expect_body = "(x + 2)".to_string();
+
+                if f.body.statments[0].to_string() != expect_body {
+                    panic!("body is not {}. got {}", expect_body, f.body.statments[0])
+                }
+            }
+            _ => panic!("object not a function: {:?}", eval),
+        }
+    }
+
+    #[test]
+    fn function_application() {
+        struct Test<'a> {
+            input: &'a str,
+            expected: i64,
+        }
+
+        let tests = vec![
+            Test {
+                input: "let identity = fn(x) { x; }; identity(5);",
+                expected: 5,
+            },
+            Test {
+                input: "let identity = fn(x) { return x; }; identity(5);",
+                expected: 5,
+            },
+            Test {
+                input: "let double = fn(x) { x * 2; }; double(5);",
+                expected: 10,
+            },
+            Test {
+                input: "let add = fn(x, y) { x + y; }; add(5, 5);",
+                expected: 10,
+            },
+            Test {
+                input: "let add = fn(x, y) { x + y; }; add(5 + 5, add(5, 5));",
+                expected: 20,
+            },
+            Test {
+                input: "fn(x) { x; }(5)",
+                expected: 5,
             },
         ];
 
