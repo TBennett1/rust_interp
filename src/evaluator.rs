@@ -83,6 +83,7 @@ fn eval_expression(exp: &Expression, env: Rc<RefCell<Environment>>) -> EvalResul
     match exp {
         Expression::Integer(i) => Ok(Object::Integer(*i)),
         Expression::Boolean(b) => Ok(native_bool_to_boolean_object(b)),
+        Expression::String(s) => Ok(Object::String(s.clone())),
         Expression::Prefix(p) => {
             let right = eval_expression(&p.right, Rc::clone(&env))?;
             eval_prefix_expression(&p.operator, right)
@@ -149,8 +150,18 @@ fn eval_infix_expression(op: &Token, right: Object, left: Object) -> EvalResult 
     match (&left, &right) {
         (Object::Integer(l), Object::Integer(r)) => eval_integer_infix_expression(op, l, r),
         (Object::Boolean(l), Object::Boolean(r)) => eval_boolean_infix_expression(op, l, r),
+        (Object::String(l), Object::String(r)) => eval_string_infix_expression(op, l, r),
         _ => Err(EvalError {
             msg: format!("type mismatch: {:?} {} {:?}", left, op, right),
+        }),
+    }
+}
+
+fn eval_string_infix_expression(op: &Token, left: &String, right: &String) -> EvalResult {
+    match op {
+        Token::Plus => Ok(Object::String(format!("{}{}", left, right))),
+        _ => Err(EvalError {
+            msg: format!("unknown operator: {:?} {} {:?}", left, op, right),
         }),
     }
 }
@@ -600,6 +611,10 @@ mod test {
                 input: "foobar",
                 expected: "identifier not found: foobar",
             },
+            Test {
+                input: "\"Hello\" - \"World\"",
+                expected: "unknown operator: \"Hello\" - \"World\"",
+            },
         ];
 
         for test in tests {
@@ -710,6 +725,28 @@ mod test {
 
         for t in tests {
             test_integer_object(&test_eval(t.input), t.expected)
+        }
+    }
+
+    #[test]
+    fn string_literal() {
+        let input = "\"hello world\";";
+        let evaluated = test_eval(input);
+
+        match evaluated {
+            Object::String(s) => assert_eq!(s, "hello world"),
+            _ => panic!("this is not a string {:?}", evaluated),
+        }
+    }
+
+    #[test]
+    fn string_cat() {
+        let input = "\"Hello\" + \" \" + \"World!\"";
+        let evaluated = test_eval(input);
+
+        match evaluated {
+            Object::String(s) => assert_eq!(s, "Hello World!"),
+            _ => panic!("this is not a string {:?}", evaluated),
         }
     }
 

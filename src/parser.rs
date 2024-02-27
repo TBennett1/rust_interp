@@ -50,6 +50,7 @@ pub enum ParserError {
     NoPrefixFun(Token),
     IdentParse,
     IntLitParse,
+    StrLitParse,
     ExpectedLparen(Token),
     ExpectedRparen(Token),
     ExpectedLbrace(Token),
@@ -173,6 +174,7 @@ impl Parser {
             Token::Lparen => Some(Parser::parse_grouped_expression),
             Token::If => Some(Parser::parse_if_expression),
             Token::Function => Some(Parser::parse_function_literal),
+            Token::String(_) => Some(Parser::parse_string_literal),
             _ => None,
         }
     }
@@ -375,6 +377,14 @@ impl Parser {
         Ok(BlockStatement {
             statments: statements,
         })
+    }
+
+    fn parse_string_literal(&mut self) -> Result<Expression, ParserError> {
+        if let Token::String(ref val) = self.curr_token {
+            return Ok(Expression::String(val.clone()));
+        }
+
+        Err(ParserError::StrLitParse)
     }
 
     fn curr_token_is(&self, token: &Token) -> bool {
@@ -1019,6 +1029,18 @@ mod tests {
                 }
                 _ => panic!("{:?} is not a call expression", exp),
             }
+        }
+    }
+
+    #[test]
+    fn string_literal() {
+        let input = "\"hello world\";";
+        let prog = setup(input, 1);
+        let exp = unwrap_expression(&prog);
+
+        match exp {
+            Expression::String(s) => assert_eq!(s, "hello world"),
+            _ => panic!("did not get string"),
         }
     }
 

@@ -70,6 +70,7 @@ pub enum Expression {
     If(Box<IfExpression>),
     Function(Box<FunctionLiteral>),
     Call(Box<CallExpression>),
+    String(String),
     None,
 }
 
@@ -88,6 +89,7 @@ impl Display for Expression {
             Expression::If(ifexp) => write!(f, "{}", ifexp),
             Expression::Function(fnlit) => write!(f, "{}", fnlit),
             Expression::Call(call) => write!(f, "{}", call),
+            Expression::String(s) => write!(f, "\"{}\"", s),
             Expression::None => write!(f, "let value not implemented"),
         }
     }

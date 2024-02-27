@@ -6,6 +6,7 @@ use crate::ast::{BlockStatement, IdentifierExpression};
 pub enum Object {
     Integer(i64),
     Boolean(bool),
+    String(String),
     Return(Rc<ReturnValue>),
     Function(Function),
     Null,
@@ -22,6 +23,7 @@ impl Display for Object {
             Object::Integer(x) => write!(f, "{}", x),
             Object::Boolean(x) => write!(f, "{}", x),
             Object::Return(x) => write!(f, "{}", x.value),
+            Object::String(x) => write!(f, "{}", x),
             Object::Function(x) => write!(f, "fn ({:?}) {{\n{}\n}}", x.parameters, x.body),
             Object::Null => write!(f, "null"),
         };

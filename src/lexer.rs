@@ -77,6 +77,10 @@ impl Lexer {
                 });
             }
             b'0'..=b'9' => return Ok(Token::Int(self.read_int())),
+            b'"' => {
+                let string = self.read_string();
+                Token::String(string)
+            }
             0 => Token::Eof,
             _ => Token::Illegal,
         };
@@ -102,6 +106,19 @@ impl Lexer {
         return String::from_utf8_lossy(&self.input[position..self.position])
             .parse::<i64>()
             .unwrap();
+    }
+
+    fn read_string(&mut self) -> String {
+        let position = self.position + 1;
+        loop {
+            self.read_char();
+            if self.ch == b'"' || self.ch == 0 {
+                break;
+            }
+        }
+        String::from_utf8_lossy(&self.input[position..self.position])
+            .parse()
+            .unwrap()
     }
 
     fn peek_char(&mut self) -> u8 {
@@ -152,7 +169,7 @@ mod test {
 
     #[test]
     fn test_next_token() -> Result<()> {
-        let input = "let five = 5;
+        let input = r#"let five = 5;
         let ten = 10;
         
         let add = fn(x, y) {
@@ -170,7 +187,9 @@ mod test {
         }
         
         10 == 10; 
-        10 != 9;";
+        10 != 9;
+        "foobar"
+        "foo bar""#;
 
         let mut lex = Lexer::new(input.into());
 
@@ -248,6 +267,8 @@ mod test {
             Token::NotEq,
             Token::Int(9),
             Token::Semicolon,
+            Token::String("foobar".to_string()),
+            Token::String("foo bar".to_string()),
             Token::Eof,
         ];
 
