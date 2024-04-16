@@ -71,6 +71,8 @@ pub enum Expression {
     Function(Box<FunctionLiteral>),
     Call(Box<CallExpression>),
     String(String),
+    Array(Box<ArrayLiteral>),
+    Index(Box<IndexExpression>),
     None,
 }
 
@@ -90,8 +92,35 @@ impl Display for Expression {
             Expression::Function(fnlit) => write!(f, "{}", fnlit),
             Expression::Call(call) => write!(f, "{}", call),
             Expression::String(s) => write!(f, "\"{}\"", s),
+            Expression::Array(a) => write!(f, "{}", a),
+            Expression::Index(i) => write!(f, "{}", i),
             Expression::None => write!(f, "let value not implemented"),
         }
+    }
+}
+
+#[derive(PartialEq, Debug, Eq, Clone)]
+pub struct IndexExpression {
+    pub left: Expression,
+    pub index: Expression,
+}
+
+impl Display for IndexExpression {
+    fn fmt(&self, f: &mut Formatter<'_>) -> Result {
+        write!(f, "({}[{}])", self.left, self.index)
+    }
+}
+
+#[derive(PartialEq, Debug, Eq, Clone)]
+
+pub struct ArrayLiteral {
+    pub elements: Vec<Expression>,
+}
+
+impl Display for ArrayLiteral {
+    fn fmt(&self, f: &mut Formatter<'_>) -> Result {
+        let elements: Vec<String> = self.elements.iter().map(|e| e.to_string()).collect();
+        write!(f, "[{}]", elements.join(", "))
     }
 }
 

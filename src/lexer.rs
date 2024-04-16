@@ -50,6 +50,8 @@ impl Lexer {
             b'+' => Token::Plus,
             b'{' => Token::Lbrace,
             b'}' => Token::Rbrace,
+            b'[' => Token::Lbracket,
+            b']' => Token::Rbracket,
             b'-' => Token::Minus,
             b'!' => {
                 if self.peek_char() == b'=' {
@@ -189,7 +191,9 @@ mod test {
         10 == 10; 
         10 != 9;
         "foobar"
-        "foo bar""#;
+        "foo bar"
+        [1, 2];
+        "#;
 
         let mut lex = Lexer::new(input.into());
 
@@ -269,6 +273,12 @@ mod test {
             Token::Semicolon,
             Token::String("foobar".to_string()),
             Token::String("foo bar".to_string()),
+            Token::Lbracket,
+            Token::Int(1),
+            Token::Comma,
+            Token::Int(2),
+            Token::Rbracket,
+            Token::Semicolon,
             Token::Eof,
         ];
 

@@ -2,7 +2,7 @@ use std::cell::RefCell;
 use std::fmt;
 use std::rc::Rc;
 
-use crate::object::{Environment, Function, Object};
+use crate::object::{Array, BuiltIn, Environment, Function, Object};
 use crate::token::Token;
 use crate::{ast::*, object};
 use anyhow::Result;
@@ -95,15 +95,7 @@ fn eval_expression(exp: &Expression, env: Rc<RefCell<Environment>>) -> EvalResul
             eval_infix_expression(&infix.operator, right, left)
         }
         Expression::If(ifexp) => eval_if_statement(ifexp, Rc::clone(&env)),
-        Expression::Identifier(id) => {
-            let val = env.borrow().get(id);
-            match val {
-                Some(v) => Ok(v),
-                None => Err(EvalError {
-                    msg: format!("identifier not found: {}", id),
-                }),
-            }
-        }
+        Expression::Identifier(id) => eval_identifier(id, Rc::clone(&env)),
         Expression::Function(f) => {
             let func = Function {
                 parameters: f.parameters.clone(),
@@ -117,7 +109,45 @@ fn eval_expression(exp: &Expression, env: Rc<RefCell<Environment>>) -> EvalResul
             let args = eval_expressions(&c.arguments, env)?;
             apply_function(func, args)
         }
+        Expression::Array(a) => {
+            let elements = eval_expressions(&a.elements, env)?;
+            Ok(Object::Array(Array { elements }))
+        }
+        Expression::Index(i) => {
+            let left = eval_expression(&i.left, env.clone())?;
+            let index = eval_expression(&i.index, env)?;
+            eval_index_expression(&left, &index)
+        }
         _ => Ok(NULL),
+    }
+}
+
+fn eval_index_expression(left: &Object, index: &Object) -> EvalResult {
+    match (left, index) {
+        (Object::Array(a), Object::Integer(i)) => Ok(eval_array_index_expression(a, i)),
+        _ => Err(EvalError {
+            msg: format!("index operator not supported: {:?}", left),
+        }),
+    }
+}
+
+fn eval_array_index_expression(array: &Array, index: &i64) -> Object {
+    let max = array.elements.len() - 1;
+    if *index < 0 || *index as usize > max {
+        return NULL;
+    }
+    array.elements[*index as usize].clone()
+}
+
+fn eval_identifier(ident: &String, env: Rc<RefCell<Environment>>) -> EvalResult {
+    match env.borrow().get(ident) {
+        Some(obj) => Ok(obj),
+        None => match BuiltIn::lookup(ident) {
+            Some(obj) => Ok(obj),
+            None => Err(EvalError {
+                msg: format!("identifier not found: {}", ident),
+            }),
+        },
     }
 }
 
@@ -243,6 +273,10 @@ fn apply_function(func: Object, args: Vec<Object>) -> EvalResult {
             let evaluated = eval_block_statement(&fun.body, extended_env)?;
             Ok(unwrap_return_value(evaluated))
         }
+        Object::BuiltIn(b) => match b.apply(&args) {
+            Ok(obj) => Ok(obj),
+            Err(e) => Err(EvalError { msg: e }),
+        },
         _ => Err(EvalError {
             msg: format!("not a function: {}", func),
         }),
@@ -271,6 +305,8 @@ fn unwrap_return_value(obj: Object) -> Object {
 
 #[cfg(test)]
 mod test {
+    use core::panic;
+
     use super::*;
     use crate::{lexer::Lexer, parser::Parser};
 
@@ -730,7 +766,7 @@ mod test {
 
     #[test]
     fn string_literal() {
-        let input = "\"hello world\";";
+        let input = r#""hello world";"#;
         let evaluated = test_eval(input);
 
         match evaluated {
@@ -741,12 +777,115 @@ mod test {
 
     #[test]
     fn string_cat() {
-        let input = "\"Hello\" + \" \" + \"World!\"";
+        let input = r#""Hello" + " " + "World!""#;
         let evaluated = test_eval(input);
 
         match evaluated {
             Object::String(s) => assert_eq!(s, "Hello World!"),
             _ => panic!("this is not a string {:?}", evaluated),
+        }
+    }
+
+    #[test]
+    fn builtin_function() {
+        struct Test<'a> {
+            input: &'a str,
+            expected: i64,
+        }
+
+        let tests = [
+            Test {
+                input: r#"len("")"#,
+                expected: 0,
+            },
+            Test {
+                input: r#"len("four")"#,
+                expected: 4,
+            },
+            Test {
+                input: r#"len("hello world")"#,
+                expected: 11,
+            },
+        ];
+
+        for test in tests {
+            let eval = test_eval(test.input);
+
+            match eval {
+                Object::Integer(i) => assert_eq!(test.expected, i),
+                _ => panic!("{:?} not integer", eval),
+            }
+        }
+    }
+
+    #[test]
+    fn array_literals() {
+        let input = "[1, 2 * 2, 3 + 3]";
+        let evaluated = test_eval(input);
+
+        match evaluated {
+            Object::Array(a) => {
+                test_integer_object(&a.elements[0], 1);
+                test_integer_object(&a.elements[1], 4);
+                test_integer_object(&a.elements[2], 6);
+            }
+            _ => panic!("expected array; got {:?}", evaluated),
+        }
+    }
+
+    #[test]
+    fn array_index_expresssions() {
+        struct Test<'a> {
+            input: &'a str,
+            expected: Object,
+        }
+
+        let tests = vec![
+            Test {
+                input: "[1, 2, 3][0]",
+                expected: Object::Integer(1),
+            },
+            Test {
+                input: "[1, 2, 3][1]",
+                expected: Object::Integer(2),
+            },
+            Test {
+                input: "[1, 2, 3][2]",
+                expected: Object::Integer(3),
+            },
+            Test {
+                input: "let i = 0; [1][i];",
+                expected: Object::Integer(1),
+            },
+            Test {
+                input: "[1, 2, 3][1 + 1];",
+                expected: Object::Integer(3),
+            },
+            Test {
+                input: "let myArray = [1, 2, 3]; myArray[2];",
+                expected: Object::Integer(3),
+            },
+            Test {
+                input: "let myArray = [1, 2, 3]; myArray[0] + myArray[1] + myArray[2];",
+                expected: Object::Integer(6),
+            },
+            Test {
+                input: "let myArray = [1, 2, 3]; let i = myArray[0]; myArray[i]",
+                expected: Object::Integer(2),
+            },
+            Test {
+                input: "[1, 2, 3][3]",
+                expected: NULL,
+            },
+            Test {
+                input: "[1, 2, 3][-1]",
+                expected: NULL,
+            },
+        ];
+
+        for test in tests {
+            let eval = test_eval(test.input);
+            assert_eq!(eval, test.expected)
         }
     }
 
