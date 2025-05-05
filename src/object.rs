@@ -1,4 +1,10 @@
-use std::{cell::RefCell, collections::HashMap, fmt, rc::Rc};
+use std::{
+    cell::RefCell,
+    collections::HashMap,
+    fmt::{self, Debug},
+    hash::{DefaultHasher, Hash as _, Hasher},
+    rc::Rc,
+};
 
 use crate::ast::{BlockStatement, IdentifierExpression};
 
@@ -11,7 +17,24 @@ pub enum Object {
     Function(Function),
     BuiltIn(BuiltIn),
     Array(Array),
+    Hash(Hash),
     Null,
+}
+
+#[derive(Eq, Debug, PartialEq, Clone)]
+pub struct Hash {
+    pub pairs: HashMap<HashKey, HashPair>,
+}
+
+#[derive(Eq, Debug, PartialEq, Clone)]
+pub struct HashPair {
+    pub key: Object,
+    pub value: Object,
+}
+
+#[derive(Eq, PartialEq, Debug, Hash, Clone)]
+pub struct HashKey {
+    value: u64,
 }
 
 #[derive(Eq, PartialEq, Debug, Clone)]
@@ -30,8 +53,32 @@ impl fmt::Display for Object {
             Object::BuiltIn(x) => write!(f, "{:?}", x),
             Object::Array(x) => write!(f, "[{:?}]", x.elements),
             Object::Null => write!(f, "null"),
+            Object::Hash(hash) => write!(
+                f,
+                "{{ {:?} : {:?} }}",
+                hash.pairs.keys(),
+                hash.pairs.values()
+            ),
         };
         Ok(())
+    }
+}
+
+impl Object {
+    pub fn hash_key(obj: Object) -> Result<HashKey, String> {
+        match obj {
+            Object::Integer(i) => Ok(HashKey { value: i as u64 }),
+            Object::Boolean(b) => {
+                let value: u64 = if b { 1 } else { 0 };
+                Ok(HashKey { value })
+            }
+            Object::String(s) => {
+                let mut h = DefaultHasher::new();
+                s.hash(&mut h);
+                Ok(HashKey { value: h.finish() })
+            }
+            _ => Err(format!("unusable as hash key: {}", obj)),
+        }
     }
 }
 
@@ -63,7 +110,7 @@ impl BuiltIn {
         }
     }
 
-    pub fn apply(&self, arg: &Vec<Object>) -> Result<Object, String> {
+    pub fn apply(&self, arg: &[Object]) -> Result<Object, String> {
         match self {
             BuiltIn::Len => {
                 if arg.len() != 1 {

@@ -1,6 +1,6 @@
 use std::fmt::Display;
 
-#[derive(Debug, PartialEq, Clone, Eq)]
+#[derive(Debug, PartialEq, Clone, Eq, Hash)]
 pub enum Token {
     Illegal,
     Eof,
@@ -30,6 +30,7 @@ pub enum Token {
     Rbrace,
     Lbracket,
     Rbracket,
+    Colon,
     // Keywords
     Function,
     Let,
@@ -73,6 +74,7 @@ impl Display for Token {
             Token::Return => write!(f, "Return"),
             Token::True => write!(f, "True"),
             Token::False => write!(f, "False"),
+            Token::Colon => write!(f, ":"),
         }
     }
 }

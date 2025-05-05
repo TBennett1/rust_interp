@@ -1,4 +1,5 @@
 use core::fmt::*;
+use std::{collections::HashMap, hash::Hash};
 
 use crate::token;
 
@@ -9,7 +10,7 @@ pub enum Node {
     Expression(Box<Expression>),
 }
 
-#[derive(Debug, PartialEq, Eq, Clone)]
+#[derive(Debug, PartialEq, Eq, Clone, Hash)]
 pub enum Statement {
     Let(LetStatement),
     Return(ReturnStatement),
@@ -26,7 +27,7 @@ impl Display for Statement {
     }
 }
 
-#[derive(Debug, PartialEq, Eq, Clone)]
+#[derive(Debug, PartialEq, Eq, Clone, Hash)]
 pub struct LetStatement {
     pub name: String,
     pub value: Expression,
@@ -38,7 +39,7 @@ impl Display for LetStatement {
     }
 }
 
-#[derive(Debug, PartialEq, Eq, Clone)]
+#[derive(Debug, PartialEq, Eq, Clone, Hash)]
 pub struct ReturnStatement {
     pub value: Expression,
 }
@@ -49,7 +50,7 @@ impl Display for ReturnStatement {
     }
 }
 
-#[derive(Debug, PartialEq, Eq, Clone)]
+#[derive(Debug, PartialEq, Eq, Clone, Hash)]
 pub struct ExpressionStatement {
     pub expression: Expression,
 }
@@ -60,7 +61,7 @@ impl Display for ExpressionStatement {
     }
 }
 
-#[derive(Debug, PartialEq, Eq, Clone)]
+#[derive(Debug, PartialEq, Eq, Clone, Hash)]
 pub enum Expression {
     Identifier(String),
     Integer(i64),
@@ -73,6 +74,7 @@ pub enum Expression {
     String(String),
     Array(Box<ArrayLiteral>),
     Index(Box<IndexExpression>),
+    Hash(HashLiteral),
     None,
 }
 
@@ -94,12 +96,30 @@ impl Display for Expression {
             Expression::String(s) => write!(f, "\"{}\"", s),
             Expression::Array(a) => write!(f, "{}", a),
             Expression::Index(i) => write!(f, "{}", i),
+            Expression::Hash(h) => write!(f, "{}", h),
             Expression::None => write!(f, "let value not implemented"),
         }
     }
 }
 
-#[derive(PartialEq, Debug, Eq, Clone)]
+#[derive(PartialEq, Debug, Clone, Eq)]
+pub struct HashLiteral {
+    pub pairs: HashMap<Expression, Expression>,
+}
+
+impl Hash for HashLiteral {
+    fn hash<H: std::hash::Hasher>(&self, _state: &mut H) {
+        todo!()
+    }
+}
+
+impl Display for HashLiteral {
+    fn fmt(&self, f: &mut Formatter<'_>) -> Result {
+        write!(f, "{{ {:?} }}", self.pairs)
+    }
+}
+
+#[derive(PartialEq, Debug, Eq, Clone, Hash)]
 pub struct IndexExpression {
     pub left: Expression,
     pub index: Expression,
@@ -111,7 +131,7 @@ impl Display for IndexExpression {
     }
 }
 
-#[derive(PartialEq, Debug, Eq, Clone)]
+#[derive(PartialEq, Debug, Eq, Clone, Hash)]
 
 pub struct ArrayLiteral {
     pub elements: Vec<Expression>,
@@ -124,7 +144,7 @@ impl Display for ArrayLiteral {
     }
 }
 
-#[derive(PartialEq, Debug, Eq, Clone)]
+#[derive(PartialEq, Debug, Eq, Clone, Hash)]
 pub struct CallExpression {
     pub function: Expression,
     pub arguments: Vec<Expression>,
@@ -137,7 +157,7 @@ impl Display for CallExpression {
     }
 }
 
-#[derive(PartialEq, Debug, Eq, Clone)]
+#[derive(PartialEq, Debug, Eq, Clone, Hash)]
 pub struct FunctionLiteral {
     pub parameters: Vec<IdentifierExpression>,
     pub body: BlockStatement,
@@ -150,7 +170,7 @@ impl Display for FunctionLiteral {
     }
 }
 
-#[derive(PartialEq, Debug, Eq, Clone)]
+#[derive(PartialEq, Debug, Eq, Clone, Hash)]
 pub struct IfExpression {
     pub condition: Expression,
     pub consequence: BlockStatement,
@@ -168,7 +188,7 @@ impl Display for IfExpression {
     }
 }
 
-#[derive(PartialEq, Debug, Eq, Clone)]
+#[derive(PartialEq, Debug, Eq, Clone, Hash)]
 pub struct BlockStatement {
     pub statments: Vec<Statement>,
 }
@@ -182,7 +202,7 @@ impl Display for BlockStatement {
     }
 }
 
-#[derive(PartialEq, Eq, Debug, Clone)]
+#[derive(PartialEq, Eq, Debug, Clone, Hash)]
 pub struct IdentifierExpression {
     pub name: String,
 }
@@ -203,7 +223,7 @@ impl Display for IntegerLiteral {
     }
 }
 
-#[derive(PartialEq, Debug, Eq, Clone)]
+#[derive(PartialEq, Debug, Eq, Clone, Hash)]
 pub struct PrefixExpression {
     pub operator: token::Token,
     pub right: Expression,
@@ -215,7 +235,7 @@ impl Display for PrefixExpression {
     }
 }
 
-#[derive(PartialEq, Debug, Eq, Clone)]
+#[derive(PartialEq, Debug, Eq, Clone, Hash)]
 pub struct InfixExpression {
     pub operator: token::Token,
     pub right_value: Expression,
