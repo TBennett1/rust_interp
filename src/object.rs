@@ -96,6 +96,7 @@ pub enum BuiltIn {
     Last,
     Rest,
     Push,
+    Puts,
 }
 
 impl BuiltIn {
@@ -106,6 +107,7 @@ impl BuiltIn {
             "last" => Some(Object::BuiltIn(BuiltIn::Last)),
             "rest" => Some(Object::BuiltIn(BuiltIn::Rest)),
             "push" => Some(Object::BuiltIn(BuiltIn::Push)),
+            "puts" => Some(Object::BuiltIn(BuiltIn::Puts)),
             _ => None,
         }
     }
@@ -170,6 +172,12 @@ impl BuiltIn {
                     }
                     _ => Err(format!("argument of `last` must be ARRAY, got {}", &arg[0])),
                 }
+            }
+            BuiltIn::Puts => {
+                for arg in arg {
+                    println!("{}", arg)
+                }
+                Ok(Object::Null)
             }
         }
     }
